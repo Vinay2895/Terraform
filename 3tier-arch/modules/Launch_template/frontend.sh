@@ -9,9 +9,10 @@ apt-get upgrade -y
 
 # Install required packages
 apt-get install -y \
+  apache2 \
   git \
   curl \
-  mysql-client
+  unzip
 
 # Install Node.js 18
 curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
@@ -25,45 +26,46 @@ corepack prepare yarn@stable --activate
 # Install PM2
 npm install -g pm2
 
-# Clone backend repository
+# Enable Apache
+systemctl enable apache2
+systemctl start apache2
+
+# Switch to ubuntu user's home
 cd /home/ubuntu
 
+# Clone application
 if [ ! -d "/home/ubuntu/aws_three_tier_project" ]; then
     git clone https://github.com/Ramani-github/aws_three_tier_project.git
 fi
 
-cd /home/ubuntu/aws_three_tier_project/backend
+cd /home/ubuntu/aws_three_tier_project/clients
 
-# Create .env file
-cat > .env <<EOF
-DB_HOST=${db_host}
-DB_USERNAME=${db_username}
-DB_PASSWORD=${db_password}
-DB_NAME=${db_name}
-PORT=${backend_port}
+# Configure API endpoint
+cat > src/pages/config.js <<'EOF'
+const config = {
+  apiUrl: "http://${backend_domain}:"
+};
+
+export default config;
 EOF
 
-# Install dependencies
+# Install frontend dependencies
 npm install
 
-# Make sure dotenv is installed
-npm install dotenv
+# Build frontend
+npm run build
 
-# Change ownership
-chown -R ubuntu:ubuntu /home/ubuntu/aws_three_tier_project
+# Deploy frontend to Apache
+rm -rf /var/www/html/*
+cp -r build/* /var/www/html/
 
-# Start backend using PM2
-su - ubuntu -c "
-  cd /home/ubuntu/aws_three_tier_project/backend
-  pm2 start index.js --name backendApi
-  pm2 save
-"
+# Set permissions
+chown -R www-data:www-data /var/www/html
 
-# Configure PM2 to start after reboot
-env PATH=$PATH:/usr/bin pm2 startup systemd \
-    -u ubuntu \
-    --hp /home/ubuntu || true
+# Restart Apache
+systemctl restart apache2
 
-systemctl daemon-reload
+# Configure PM2 startup for ubuntu user
+su - ubuntu -c "pm2 startup systemd -u ubuntu --hp /home/ubuntu" || true
 
-echo "Backend installation completed."
+echo "Frontend installation completed."
